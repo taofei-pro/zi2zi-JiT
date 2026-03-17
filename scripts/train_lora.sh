@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
-# zi2zi-JiT LoRA Fine-Tuning Script
-# Usage: bash scripts/train_lora.sh [options]
+# zi2zi-JiT One-Click Training Pipeline
+# Usage: bash scripts/train_lora.sh
 
 set -e
 
 echo "=========================================="
-echo "  zi2zi-JiT LoRA Fine-Tuning"
+echo "  zi2zi-JiT Training Pipeline"
 echo "=========================================="
 
-# Default Configuration
+# ============================================
+# Configuration
+# ============================================
+
+# Font Configuration
+SOURCE_FONT="${SOURCE_FONT:-data/思源宋体SC-Light.otf}"
+TARGET_FONT_DIR="${TARGET_FONT_DIR:-data/young_font}"
+CHARSET="${CHARSET:-gb2312}"
+TRAIN_CHARS="${TRAIN_CHARS:-500}"
+TEST_CHARS="${TEST_CHARS:-100}"
+
+# Dataset Configuration
+DATASET_DIR="${DATASET_DIR:-data/young_dataset_v3}"
+
+# Model Configuration
 MODEL="${MODEL:-JiT-L/16}"
-CHECKPOINT="${CHECKPOINT:-models/zi2zi-JiT-models/zi2zi-JiT-L-16.pth}"
-DATA_PATH="${DATA_PATH:-data/young_dataset_v2/train/}"
-TEST_NPZ="${TEST_NPZ:-data/young_dataset_v2/test.npz}"
+BASE_CHECKPOINT="${BASE_CHECKPOINT:-models/zi2zi-JiT-models/zi2zi-JiT-L-16.pth}"
 OUTPUT_DIR="${OUTPUT_DIR:-run/lora_ft_young_L_$(date +%Y%m%d_%H%M%S)}"
 
 # Training Parameters
@@ -46,65 +58,107 @@ NUM_IMAGES="${NUM_IMAGES:-400}"
 # Device
 DEVICE="${DEVICE:-cuda}"
 
-# Device
-DEVICE="${DEVICE:-cuda}"
-
 echo ""
 echo "Configuration:"
-echo "  Model:           $MODEL"
-echo "  Checkpoint:      $CHECKPOINT"
-echo "  Data Path:       $DATA_PATH"
-echo "  Test NPZ:        $TEST_NPZ"
-echo "  Output Dir:      $OUTPUT_DIR"
+echo "  Source Font:    $SOURCE_FONT"
+echo "  Target Fonts:   $TARGET_FONT_DIR"
+echo "  Charset:        $CHARSET"
+echo "  Train Chars:    $TRAIN_CHARS"
+echo "  Test Chars:     $TEST_CHARS"
 echo ""
-echo "Training:"
-echo "  Epochs:          $EPOCHS"
-echo "  Batch Size:      $BATCH_SIZE"
-echo "  Learning Rate:   $BLR"
-echo "  Warmup Epochs:   $WARMUP_EPOCHS"
-echo "  Seed:            $SEED"
+echo "  Dataset Dir:    $DATASET_DIR"
+echo "  Model:          $MODEL"
+echo "  Output Dir:     $OUTPUT_DIR"
 echo ""
-echo "LoRA:"
-echo "  Rank:            $LORA_R"
-echo "  Alpha:           $LORA_ALPHA"
-echo "  Targets:         $LORA_TARGETS"
-echo ""
-echo "Sampling:"
-echo "  CFG Scale:       $CFG"
-echo "  Method:          $SAMPLING_METHOD"
-echo "  Steps:           $NUM_SAMPLING_STEPS"
+echo "  Epochs:         $EPOCHS"
+echo "  Batch Size:     $BATCH_SIZE"
+echo "  CFG Scale:      $CFG"
+echo "  Device:         $DEVICE"
 echo ""
 
-# Check if checkpoint exists
-if [ ! -f "$CHECKPOINT" ]; then
-    echo "ERROR: Checkpoint not found: $CHECKPOINT"
-    echo "Please download the model first or set CHECKPOINT environment variable."
+# ============================================
+# Step 1: Generate Dataset
+# ============================================
+
+echo "=========================================="
+echo "Step 1: Generating Dataset"
+echo "=========================================="
+
+if [ ! -f "$SOURCE_FONT" ]; then
+    echo "ERROR: Source font not found: $SOURCE_FONT"
     exit 1
 fi
 
-# Check if data exists
+if [ ! -d "$TARGET_FONT_DIR" ]; then
+    echo "ERROR: Target font directory not found: $TARGET_FONT_DIR"
+    exit 1
+fi
+
+if [ -d "$DATASET_DIR/train" ] && [ -f "$DATASET_DIR/test.npz" ]; then
+    echo "Dataset already exists at $DATASET_DIR"
+    read -p "Regenerate dataset? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        rm -rf "$DATASET_DIR"
+        python scripts/generate_font_dataset.py \
+            --source-font "$SOURCE_FONT" \
+            --font-dir "$TARGET_FONT_DIR" \
+            --output-dir "$DATASET_DIR" \
+            --train-chars-per-font "$TRAIN_CHARS" \
+            --test-chars-per-font "$TEST_CHARS" \
+            --charset "$CHARSET"
+    else
+        echo "Skipping dataset generation..."
+    fi
+else
+    python scripts/generate_font_dataset.py \
+        --source-font "$SOURCE_FONT" \
+        --font-dir "$TARGET_FONT_DIR" \
+        --output-dir "$DATASET_DIR" \
+        --train-chars-per-font "$TRAIN_CHARS" \
+        --test-chars-per-font "$TEST_CHARS" \
+        --charset "$CHARSET"
+fi
+
+DATA_PATH="$DATASET_DIR/train/"
+TEST_NPZ="$DATASET_DIR/test.npz"
+
 if [ ! -d "$DATA_PATH" ]; then
-    echo "ERROR: Data path not found: $DATA_PATH"
-    echo "Please generate the dataset first or set DATA_PATH environment variable."
+    echo "ERROR: Training data not found: $DATA_PATH"
     exit 1
 fi
 
 if [ ! -f "$TEST_NPZ" ]; then
     echo "ERROR: Test NPZ not found: $TEST_NPZ"
-    echo "Please generate the dataset first or set TEST_NPZ environment variable."
     exit 1
 fi
 
-# Create output directory
+# ============================================
+# Step 2: LoRA Fine-Tuning
+# ============================================
+
+echo ""
+echo "=========================================="
+echo "Step 2: LoRA Fine-Tuning"
+echo "=========================================="
+
+if [ ! -f "$BASE_CHECKPOINT" ]; then
+    echo "ERROR: Base checkpoint not found: $BASE_CHECKPOINT"
+    exit 1
+fi
+
 mkdir -p "$OUTPUT_DIR"
 
-# Save configuration
 cat > "$OUTPUT_DIR/config.sh" << EOF
-# Training Configuration
+# Training Configuration - Generated $(date)
+SOURCE_FONT="$SOURCE_FONT"
+TARGET_FONT_DIR="$TARGET_FONT_DIR"
+CHARSET="$CHARSET"
+TRAIN_CHARS="$TRAIN_CHARS"
+TEST_CHARS="$TEST_CHARS"
+DATASET_DIR="$DATASET_DIR"
 MODEL="$MODEL"
-CHECKPOINT="$CHECKPOINT"
-DATA_PATH="$DATA_PATH"
-TEST_NPZ="$TEST_NPZ"
+BASE_CHECKPOINT="$BASE_CHECKPOINT"
 OUTPUT_DIR="$OUTPUT_DIR"
 EPOCHS="$EPOCHS"
 BATCH_SIZE="$BATCH_SIZE"
@@ -115,8 +169,6 @@ LORA_R="$LORA_R"
 LORA_ALPHA="$LORA_ALPHA"
 LORA_TARGETS="$LORA_TARGETS"
 CFG="$CFG"
-SAMPLING_METHOD="$SAMPLING_METHOD"
-NUM_SAMPLING_STEPS="$NUM_SAMPLING_STEPS"
 EOF
 
 echo "Configuration saved to: $OUTPUT_DIR/config.sh"
@@ -128,7 +180,7 @@ python lora_single_gpu_finetune_jit.py \
     --data_path "$DATA_PATH" \
     --test_npz_path "$TEST_NPZ" \
     --output_dir "$OUTPUT_DIR" \
-    --base_checkpoint "$CHECKPOINT" \
+    --base_checkpoint "$BASE_CHECKPOINT" \
     --model "$MODEL" \
     --num_fonts "$NUM_FONTS" \
     --num_chars "$NUM_CHARS" \
@@ -157,42 +209,61 @@ python lora_single_gpu_finetune_jit.py \
     --seed "$SEED" \
     --device "$DEVICE"
 
-echo ""
-echo "=========================================="
-echo "Training completed!"
-echo "Output saved to: $OUTPUT_DIR"
-echo "Checkpoint: $OUTPUT_DIR/checkpoint-last.pth"
+TRAIN_SUCCESS=$?
+
+# ============================================
+# Step 3: Evaluation
+# ============================================
 
 echo ""
 echo "=========================================="
-echo "Running evaluation..."
+echo "Step 3: Evaluation"
 echo "=========================================="
 
 EVAL_OUTPUT="$OUTPUT_DIR/eval_results"
-mkdir -p "$EVAL_OUTPUT"
 
-python generate_chars.py \
-    --checkpoint "$OUTPUT_DIR/checkpoint-last.pth" \
-    --test_npz "$TEST_NPZ" \
-    --output_dir "$EVAL_OUTPUT" \
-    --batch_size 64 \
-    --device "$DEVICE" \
-    --sampling_method ab2 \
-    --num_sampling_steps 20 \
-    --cfg "$CFG" \
-    --pairwise target_gen
-
-COMPARE_DIR=$(find "$EVAL_OUTPUT" -type d -name "compare" | head -1)
-
-if [ -n "$COMPARE_DIR" ]; then
-    echo ""
-    echo "Computing metrics..."
-    python scripts/compute_comparison_metrics.py "$COMPARE_DIR" --device "$DEVICE" --batch-size 64
+if [ $TRAIN_SUCCESS -eq 0 ] && [ -f "$OUTPUT_DIR/checkpoint-last.pth" ]; then
+    mkdir -p "$EVAL_OUTPUT"
+    
+    echo "Generating test images..."
+    python generate_chars.py \
+        --checkpoint "$OUTPUT_DIR/checkpoint-last.pth" \
+        --test_npz "$TEST_NPZ" \
+        --output_dir "$EVAL_OUTPUT" \
+        --batch_size 64 \
+        --device "$DEVICE" \
+        --sampling_method ab2 \
+        --num_sampling_steps 20 \
+        --cfg "$CFG" \
+        --pairwise target_gen
+    
+    COMPARE_DIR=$(find "$EVAL_OUTPUT" -type d -name "compare" 2>/dev/null | head -1)
+    
+    if [ -n "$COMPARE_DIR" ] && [ -d "$COMPARE_DIR" ]; then
+        echo ""
+        echo "Computing metrics..."
+        python scripts/compute_comparison_metrics.py "$COMPARE_DIR" --device "$DEVICE" --batch-size 64
+    else
+        echo "WARNING: No comparison directory found, skipping metrics."
+    fi
+else
+    echo "WARNING: Training failed or checkpoint not found, skipping evaluation."
 fi
+
+# ============================================
+# Summary
+# ============================================
 
 echo ""
 echo "=========================================="
-echo "All done!"
-echo "Training output: $OUTPUT_DIR"
-echo "Evaluation results: $EVAL_OUTPUT"
+echo "Pipeline completed!"
+echo "=========================================="
+echo ""
+echo "Summary:"
+echo "  Dataset:     $DATASET_DIR"
+echo "  Output:      $OUTPUT_DIR"
+if [ -f "$OUTPUT_DIR/checkpoint-last.pth" ]; then
+    echo "  Checkpoint:  $OUTPUT_DIR/checkpoint-last.pth"
+fi
+echo "  Eval:        $EVAL_OUTPUT"
 echo "=========================================="
