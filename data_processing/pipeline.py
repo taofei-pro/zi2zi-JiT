@@ -136,6 +136,8 @@ def extract_train_src_target_refs(
     jpg_quality: int = DEFAULT_JPEG_QUALITY,
     seed: Optional[int] = None,
     font_index: Optional[int] = None,
+    auto_split: bool = False,
+    train_ratio: float = 0.8,
 ) -> dict:
     source_font, source_validated_path = load_font(str(source_font_path))
     target_font, target_validated_path = load_font(str(target_font_path))
@@ -161,7 +163,24 @@ def extract_train_src_target_refs(
             "font_file": target_font_path.name,
         }
 
-    selected_codepoints = _sample_codepoints(sorted(filtered_codepoints), sample_count, seed)
+    sorted_codepoints = sorted(filtered_codepoints)
+    
+    if auto_split:
+        import random
+        random.seed(seed)
+        shuffled = sorted_codepoints.copy()
+        random.shuffle(shuffled)
+        split_idx = max(1, int(len(shuffled) * train_ratio))
+        train_codepoints = shuffled[:split_idx]
+        test_codepoints = shuffled[split_idx:]
+        selected_codepoints = train_codepoints
+    else:
+        if sample_count is None:
+            selected_codepoints = sorted_codepoints
+        else:
+            selected_codepoints = _sample_codepoints(sorted_codepoints, sample_count, seed)
+        test_codepoints = []
+    
     ensure_output_directory(str(output_dir))
 
     source_renderer = GlyphRenderer(str(source_validated_path), resolution)
@@ -217,13 +236,16 @@ def extract_train_src_target_refs(
     metadata.update(
         {
             "dataset_type": "train",
-            "sample_requested": sample_count,
+            "sample_requested": sample_count if not auto_split else len(selected_codepoints),
             "extracted_count": successful,
             "failed_count": failed,
             "resolution": resolution,
             "image_dimensions": "1024x256",
             "layout": "source(256) + target(256) + refs_grid1(256) + refs_grid2(256)",
             "characters": extracted_chars,
+            "auto_split": auto_split,
+            "train_ratio": train_ratio if auto_split else None,
+            "test_codepoints": [_format_codepoint(cp) for cp in test_codepoints] if auto_split else [],
         }
     )
     _save_json(output_dir / "metadata.json", metadata)
@@ -259,6 +281,8 @@ def extract_test_src_target_refs(
     jpg_quality: int = DEFAULT_JPEG_QUALITY,
     seed: Optional[int] = None,
     font_index: Optional[int] = None,
+    auto_split: bool = False,
+    precomputed_test_codepoints: Optional[List[int]] = None,
 ) -> dict:
     source_font, source_validated_path = load_font(str(source_font_path))
     target_font, target_validated_path = load_font(str(target_font_path))
@@ -278,22 +302,25 @@ def extract_test_src_target_refs(
         index_map = {}
 
     train_set = set(train_codepoints)
-    unseen_codepoints = sorted(filtered_codepoints - train_set)
-
-    if len(unseen_codepoints) < test_sample_count:
-        return {
-            "success": False,
-            "error": f"Not enough unseen glyphs (need {test_sample_count}, got {len(unseen_codepoints)})",
-            "font_file": target_font_path.name,
-        }
+    
+    if auto_split and precomputed_test_codepoints is not None:
+        selected_codepoints = precomputed_test_codepoints
+    else:
+        unseen_codepoints = sorted(filtered_codepoints - train_set)
+        if len(unseen_codepoints) < test_sample_count:
+            return {
+                "success": False,
+                "error": f"Not enough unseen glyphs (need {test_sample_count}, got {len(unseen_codepoints)})",
+                "font_file": target_font_path.name,
+            }
+        selected_codepoints = _sample_codepoints(unseen_codepoints, test_sample_count, seed)
+    
     if len(train_codepoints) < 8:
         return {
             "success": False,
             "error": f"Not enough training references (need 8, got {len(train_codepoints)})",
             "font_file": target_font_path.name,
         }
-
-    selected_codepoints = _sample_codepoints(unseen_codepoints, test_sample_count, seed)
 
     ensure_output_directory(str(output_dir))
     source_renderer = GlyphRenderer(str(source_validated_path), resolution)
@@ -311,7 +338,11 @@ def extract_test_src_target_refs(
             continue
 
         rng = random.Random((seed or 0) + codepoint)
-        refs = rng.sample(train_codepoints, 8)
+        refs = rng.sample(train_codepoints, min(8, len(train_codepoints)))
+        
+        if len(refs) < 8:
+            refs = refs * (8 // len(refs) + 1)
+            refs = refs[:8]
 
         ref_grid_1 = create_reference_grid(target_renderer, refs[:4])
         ref_grid_2 = create_reference_grid(target_renderer, refs[4:])
@@ -377,7 +408,7 @@ def _list_font_files(font_dir: Path) -> List[Path]:
 
 def _train_one_font(args_tuple):
     (source_font, target_font, font_output_dir, chars_per_font,
-     charset, resolution, seed, font_index, label) = args_tuple
+     charset, resolution, seed, font_index, label, auto_split, train_ratio) = args_tuple
     print(label, flush=True)
     result = extract_train_src_target_refs(
         source_font_path=source_font,
@@ -388,6 +419,8 @@ def _train_one_font(args_tuple):
         resolution=resolution,
         seed=seed + font_index,
         font_index=font_index,
+        auto_split=auto_split,
+        train_ratio=train_ratio,
     )
     print(f"  done: extracted={result.get('extracted', 0)} failed={result.get('failed', 0)}", flush=True)
     return font_index, result
@@ -404,9 +437,15 @@ def generate_train_dataset(
     seed: int = 42,
     start_index: int = 1,
     num_workers: int = 1,
+    font_files: Optional[list] = None,
+    auto_split: bool = False,
+    train_ratio: float = 0.8,
 ) -> dict:
     ensure_output_directory(str(output_dir))
-    font_files = _list_font_files(font_dir)
+    if font_files is not None:
+        font_files = [Path(f) for f in font_files]
+    else:
+        font_files = _list_font_files(font_dir)
     if num_fonts is not None:
         font_files = font_files[:num_fonts]
 
@@ -418,7 +457,7 @@ def generate_train_dataset(
         font_output_dir = output_dir / folder_name
         label = f"[{offset + 1}/{total_fonts}] {target_font.name}"
         tasks.append((source_font, target_font, font_output_dir, chars_per_font,
-                       charset, resolution, seed, font_index, label))
+                       charset, resolution, seed, font_index, label, auto_split, train_ratio))
 
     result_map = {}
     if num_workers <= 1:
@@ -460,7 +499,7 @@ def _resolve_target_font(train_folder: Path, train_metadata: dict, font_dir: Pat
 
 def _test_one_font(args_tuple):
     (offset, source_font, target_font, font_output_dir, train_codepoints,
-     chars_per_font, charset, resolution, seed, font_index, label) = args_tuple
+     chars_per_font, charset, resolution, seed, font_index, label, auto_split, test_codepoints) = args_tuple
     print(label, flush=True)
     result = extract_test_src_target_refs(
         source_font_path=source_font,
@@ -472,6 +511,8 @@ def _test_one_font(args_tuple):
         resolution=resolution,
         seed=seed,
         font_index=font_index,
+        auto_split=auto_split,
+        precomputed_test_codepoints=test_codepoints,
     )
     print(f"  done: extracted={result.get('extracted', 0)} failed={result.get('failed', 0)}", flush=True)
     return offset, result
@@ -487,6 +528,8 @@ def generate_test_dataset(
     resolution: int = DEFAULT_IMAGE_RESOLUTION,
     seed: int = 99999,
     num_workers: int = 1,
+    auto_split: bool = False,
+    train_ratio: float = 0.8,
 ) -> dict:
     ensure_output_directory(str(output_dir))
     train_folders = sorted([p for p in train_dir.iterdir() if p.is_dir()], key=lambda p: p.name.lower())
@@ -517,13 +560,19 @@ def generate_test_dataset(
             }
             continue
 
-        train_codepoints = load_training_codepoints(metadata_path)
+        if auto_split and train_metadata.get("auto_split"):
+            test_codepoints = [_parse_codepoint(cp) for cp in train_metadata.get("test_codepoints", [])]
+            train_codepoints = load_training_codepoints(metadata_path)
+        else:
+            train_codepoints = load_training_codepoints(metadata_path)
+            test_codepoints = None
+        
         font_index = train_metadata.get("font_index")
         font_output_dir = output_dir / train_folder.name
 
         tasks.append((offset, source_font, target_font, font_output_dir, train_codepoints,
                        chars_per_font, charset, resolution, seed + offset,
-                       font_index if isinstance(font_index, int) else None, label))
+                       font_index if isinstance(font_index, int) else None, label, auto_split, test_codepoints))
 
     if num_workers <= 1:
         for t in tasks:

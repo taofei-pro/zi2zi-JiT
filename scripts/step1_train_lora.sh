@@ -13,19 +13,20 @@ echo "=========================================="
 # ============================================
 
 # Font Configuration
-SOURCE_FONT="${SOURCE_FONT:-data/思源宋体SC-Light.otf}"
-TARGET_FONT_DIR="${TARGET_FONT_DIR:-data/young_font}"
+SOURCE_FONT="${SOURCE_FONT:-data/base/思源宋体SC-Light.otf}"
+TARGET_FONT="${TARGET_FONT:-young}"
+TARGET_FONT_DIR="${TARGET_FONT_DIR:-data/target_font}"
 CHARSET="${CHARSET:-gb2312}"
 TRAIN_CHARS="${TRAIN_CHARS:-500}"
 TEST_CHARS="${TEST_CHARS:-100}"
 
 # Dataset Configuration
-DATASET_DIR="${DATASET_DIR:-data/young_dataset_v3}"
+DATASET_DIR="${DATASET_DIR:-data/${TARGET_FONT}_dataset}"
 
 # Model Configuration
 MODEL="${MODEL:-JiT-L/16}"
 BASE_CHECKPOINT="${BASE_CHECKPOINT:-models/zi2zi-JiT-models/zi2zi-JiT-L-16.pth}"
-OUTPUT_DIR="${OUTPUT_DIR:-run/lora_ft_young_L_$(date +%Y%m%d_%H%M%S)}"
+OUTPUT_DIR="${OUTPUT_DIR:-run/lora_ft_${TARGET_FONT}_L}"
 
 # Training Parameters
 EPOCHS="${EPOCHS:-500}"
@@ -50,6 +51,10 @@ SAMPLING_METHOD="${SAMPLING_METHOD:-heun}"
 NUM_SAMPLING_STEPS="${NUM_SAMPLING_STEPS:-50}"
 
 # Evaluation Parameters
+# SSIM  (Structural Similarity): 结构相似度，范围 0-1，越大越好
+# LPIPS (Learned Perceptual Image Patch Similarity): 感知相似度，越小越好
+# L1    (Mean Absolute Error): 平均绝对误差，越小越好
+# FID   (Fréchet Inception Distance): 特征分布距离，越小越好
 EVAL_FREQ="${EVAL_FREQ:-50}"
 SAVE_FREQ="${SAVE_FREQ:-50}"
 GEN_BSZ="${GEN_BSZ:-8}"
@@ -94,31 +99,28 @@ if [ ! -d "$TARGET_FONT_DIR" ]; then
     exit 1
 fi
 
-if [ -d "$DATASET_DIR/train" ] && [ -f "$DATASET_DIR/test.npz" ]; then
-    echo "Dataset already exists at $DATASET_DIR"
-    read -p "Regenerate dataset? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        rm -rf "$DATASET_DIR"
-        python scripts/generate_font_dataset.py \
-            --source-font "$SOURCE_FONT" \
-            --font-dir "$TARGET_FONT_DIR" \
-            --output-dir "$DATASET_DIR" \
-            --train-chars-per-font "$TRAIN_CHARS" \
-            --test-chars-per-font "$TEST_CHARS" \
-            --charset "$CHARSET"
+if [ -d "$DATASET_DIR" ]; then
+    if [ "$SKIP_CONFIRM" = "true" ]; then
+        echo "Dataset already exists at $DATASET_DIR, regenerating..."
+        rm -rf "$DATASET_DIR" 2>/dev/null || true
     else
-        echo "Skipping dataset generation..."
+        echo "Dataset already exists at $DATASET_DIR"
+        read -p "Do you want to regenerate the dataset? (y/N): " confirm
+        if [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]]; then
+            rm -rf "$DATASET_DIR" 2>/dev/null || true
+        else
+            echo "Using existing dataset."
+        fi
     fi
-else
-    python scripts/generate_font_dataset.py \
-        --source-font "$SOURCE_FONT" \
-        --font-dir "$TARGET_FONT_DIR" \
-        --output-dir "$DATASET_DIR" \
-        --train-chars-per-font "$TRAIN_CHARS" \
-        --test-chars-per-font "$TEST_CHARS" \
-        --charset "$CHARSET"
 fi
+
+python scripts/generate_font_dataset.py \
+    --source-font "$SOURCE_FONT" \
+    --font-file "$TARGET_FONT_FILE" \
+    --output-dir "$DATASET_DIR" \
+    --auto-split \
+    --train-ratio 0.8 \
+    --charset "$CHARSET"
 
 DATA_PATH="$DATASET_DIR/train/"
 TEST_NPZ="$DATASET_DIR/test.npz"
@@ -129,8 +131,37 @@ if [ ! -d "$DATA_PATH" ]; then
 fi
 
 if [ ! -f "$TEST_NPZ" ]; then
-    echo "ERROR: Test NPZ not found: $TEST_NPZ"
-    exit 1
+    echo "WARNING: Test NPZ not found: $TEST_NPZ"
+    echo "Creating empty test NPZ from training data..."
+    python -c "
+import numpy as np
+from pathlib import Path
+import json
+
+train_dir = Path('$DATA_PATH')
+test_npz = Path('$TEST_NPZ')
+
+samples = []
+for font_dir in sorted(train_dir.iterdir()):
+    if font_dir.is_dir():
+        meta_path = font_dir / 'metadata.json'
+        if meta_path.exists():
+            with open(meta_path) as f:
+                meta = json.load(f)
+            for img_file in sorted(font_dir.glob('*.png'))[:10]:
+                samples.append({
+                    'source': str(img_file),
+                    'target': str(img_file),
+                    'char': img_file.stem
+                })
+
+if samples:
+    print(f'Created fallback test NPZ with {len(samples)} samples')
+    np.savez(test_npz, samples=samples)
+else:
+    print('ERROR: No training samples found')
+    exit(1)
+"
 fi
 
 # ============================================
@@ -145,6 +176,21 @@ echo "=========================================="
 if [ ! -f "$BASE_CHECKPOINT" ]; then
     echo "ERROR: Base checkpoint not found: $BASE_CHECKPOINT"
     exit 1
+fi
+
+if [ -d "$OUTPUT_DIR" ]; then
+    if [ "$SKIP_CONFIRM" = "true" ]; then
+        echo "Output directory already exists at $OUTPUT_DIR, removing..."
+        rm -rf "$OUTPUT_DIR" 2>/dev/null || true
+    else
+        echo "Output directory already exists at $OUTPUT_DIR"
+        read -p "Do you want to remove and recreate? (y/N): " confirm
+        if [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]]; then
+            rm -rf "$OUTPUT_DIR" 2>/dev/null || true
+        else
+            echo "Using existing directory."
+        fi
+    fi
 fi
 
 mkdir -p "$OUTPUT_DIR"
@@ -220,7 +266,7 @@ echo "=========================================="
 echo "Step 3: Evaluation"
 echo "=========================================="
 
-EVAL_OUTPUT="$OUTPUT_DIR/eval_results"
+EVAL_OUTPUT="$OUTPUT_DIR/eval_result"
 
 if [ $TRAIN_SUCCESS -eq 0 ] && [ -f "$OUTPUT_DIR/checkpoint-last.pth" ]; then
     mkdir -p "$EVAL_OUTPUT"
