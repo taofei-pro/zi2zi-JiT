@@ -12,60 +12,46 @@ echo "=========================================="
 # Configuration
 # ============================================
 
-# Font Configuration
-SOURCE_FONT="${SOURCE_FONT:-data/base/思源宋体SC-Light.otf}"
-TARGET_FONT="${TARGET_FONT:-young}"
-TARGET_FONT_DIR="${TARGET_FONT_DIR:-data/target_font}"
-CHARSET="${CHARSET:-gb2312}"
-TRAIN_CHARS="${TRAIN_CHARS:-500}"
-TEST_CHARS="${TEST_CHARS:-100}"
+# ============================================
+# 关键参数配置（可修改）
+# ============================================
 
-# Dataset Configuration
-DATASET_DIR="${DATASET_DIR:-data/${TARGET_FONT}_dataset}"
+TARGET_FONT="${TARGET_FONT:-young}"           # 目标字体名
+EPOCHS=2000                                    # 训练轮数
+LORA_R=64                                      # LoRA rank (16-128)
+MAX_CHARS_PER_FONT=800                         # 每款字体训练字符数 (最多)
+SEED=42                                        # 随机种子
 
-# Model Configuration
-MODEL="${MODEL:-JiT-L/16}"
-BASE_CHECKPOINT="${BASE_CHECKPOINT:-models/zi2zi-JiT-models/zi2zi-JiT-L-16.pth}"
-OUTPUT_DIR="${OUTPUT_DIR:-run/lora_ft_${TARGET_FONT}_L}"
+# ============================================
+# 其他配置（通常无需修改）
+# ============================================
 
-# Training Parameters
-EPOCHS="${EPOCHS:-2000}"
-BATCH_SIZE="${BATCH_SIZE:-8}"
-BLR="${BLR:-8e-4}"
-WARMUP_EPOCHS="${WARMUP_EPOCHS:-5}"
-SEED="${SEED:-42}"
+SOURCE_FONT="data/base/思源宋体SC-Light.otf"
+TARGET_FONT_DIR="data/target_font"
+CHARSET="gb2312"
+DATASET_DIR="data/dataset/${TARGET_FONT}"
+MODEL="JiT-L/16"
+BASE_CHECKPOINT="models/zi2zi-JiT-models/zi2zi-JiT-L-16.pth"
+OUTPUT_DIR="run/lora_ft_${TARGET_FONT}_L"
 
-# Early Stopping Parameters
-EARLY_STOP_PATIENCE="${EARLY_STOP_PATIENCE:-100}"
-EARLY_STOP_MIN_DELTA="${EARLY_STOP_MIN_DELTA:-0.0001}"
+BATCH_SIZE=16
+BLR=8e-4
+WARMUP_EPOCHS=5
+EARLY_STOP_PATIENCE=100
+EARLY_STOP_MIN_DELTA=0.0001
+LORA_ALPHA=32
+LORA_TARGETS=qkv,proj,w12,w3
+NUM_FONTS=1000
+NUM_CHARS=20000
 
-# LoRA Parameters
-LORA_R="${LORA_R:-32}"
-LORA_ALPHA="${LORA_ALPHA:-32}"
-LORA_TARGETS="${LORA_TARGETS:-qkv,proj,w12,w3}"
-
-# Model Parameters
-NUM_FONTS="${NUM_FONTS:-1000}"
-NUM_CHARS="${NUM_CHARS:-20000}"
-MAX_CHARS_PER_FONT="${MAX_CHARS_PER_FONT:-500}"
-
-# Sampling Parameters
-CFG="${CFG:-2.4}"
-SAMPLING_METHOD="${SAMPLING_METHOD:-heun}"
-NUM_SAMPLING_STEPS="${NUM_SAMPLING_STEPS:-50}"
-
-# Evaluation Parameters
-# SSIM  (Structural Similarity): 结构相似度，范围 0-1，越大越好
-# LPIPS (Learned Perceptual Image Patch Similarity): 感知相似度，越小越好
-# L1    (Mean Absolute Error): 平均绝对误差，越小越好
-# FID   (Fréchet Inception Distance): 特征分布距离，越小越好
-EVAL_FREQ="${EVAL_FREQ:-50}"
-SAVE_FREQ="${SAVE_FREQ:-50}"
-GEN_BSZ="${GEN_BSZ:-8}"
-NUM_IMAGES="${NUM_IMAGES:-400}"
-
-# Device
-DEVICE="${DEVICE:-cuda}"
+CFG=2.4
+SAMPLING_METHOD=heun
+NUM_SAMPLING_STEPS=50
+EVAL_FREQ=50
+SAVE_FREQ=50
+GEN_BSZ=16
+NUM_IMAGES=400
+DEVICE=cuda
 
 echo ""
 echo "Configuration:"
@@ -125,7 +111,8 @@ python scripts/generate_font_dataset.py \
     --output-dir "$DATASET_DIR" \
     --auto-split \
     --train-ratio 0.8 \
-    --charset "$CHARSET"
+    --charset "$CHARSET" \
+    --train-chars-per-font 800
 
 DATA_PATH="$DATASET_DIR/train/"
 TEST_NPZ="$DATASET_DIR/test.npz"

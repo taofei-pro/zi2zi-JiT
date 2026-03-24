@@ -20,7 +20,7 @@ CHECKPOINT="${CHECKPOINT:-run/lora_ft_${TARGET_FONT}_L/checkpoint-last.pth}"
 SOURCE_FONT="${SOURCE_FONT:-data/base/思源宋体SC-Light.otf}"
 
 # Reference images directory (for style guidance)
-REF_DIR="${REF_DIR:-data/${TARGET_FONT}_dataset/train/001_${TARGET_FONT}}"
+REF_DIR="${REF_DIR:-data/dataset/${TARGET_FONT}/train/001_${TARGET_FONT}}"
 
 # Charset file (one character per line)
 CHARSET_FILE="${CHARSET_FILE:-data/base/target_charset.txt}"

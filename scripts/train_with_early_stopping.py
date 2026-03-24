@@ -6,6 +6,7 @@ import sys
 import os
 from pathlib import Path
 from tensorboard.backend.event_processing import event_accumulator
+import re
 
 def find_latest_event_file(log_dir):
     event_files = list(Path(log_dir).glob("events.out.tfevents.*"))
@@ -21,10 +22,10 @@ def get_latest_loss(event_file):
         ea.Reload()
         losses = ea.Scalars('train_loss')
         if losses:
-            return losses[-1].value
-    except Exception:
-        pass
-    return None
+            return losses[-1].value, len(losses)
+    except Exception as e:
+        print(f"[EarlyStopping] Error reading loss: {e}")
+    return None, 0
 
 def main():
     if len(sys.argv) < 3:
@@ -39,7 +40,7 @@ def main():
 
     print(f"[EarlyStopping] Log directory: {log_dir}")
     print(f"[EarlyStopping] Patience: {patience} epochs, Min delta: {min_delta}")
-    print(f"[EarlyStopping] Starting training: {' '.join(training_cmd)}")
+    print(f"[EarlyStopping] Starting training...")
 
     os.makedirs(log_dir, exist_ok=True)
 
@@ -53,10 +54,7 @@ def main():
 
     best_loss = float('inf')
     wait_count = 0
-    last_epoch = 0
-    last_loss = None
-
-    import select
+    last_epoch_count = 0
 
     while True:
         ret = process.poll()
@@ -64,36 +62,34 @@ def main():
             print(f"\n[EarlyStopping] Training process finished with code {ret}")
             break
 
-        time.sleep(10)
+        time.sleep(15)
 
         event_file = find_latest_event_file(log_dir)
         if event_file:
-            current_loss = get_latest_loss(event_file)
-            if current_loss is not None:
-                if last_loss is not None and current_loss >= last_loss:
-                    epoch_diff = 1
-                else:
-                    epoch_diff = 1
+            result = get_latest_loss(event_file)
+            if result[0] is not None:
+                current_loss, epoch_count = result
 
-                if current_loss < best_loss - min_delta:
-                    best_loss = current_loss
-                    wait_count = 0
-                    print(f"[EarlyStopping] Epoch {last_epoch+epoch_diff}: New best loss = {best_loss:.6f}")
-                else:
-                    wait_count += epoch_diff
-                    print(f"[EarlyStopping] Epoch {last_epoch+epoch_diff}: Loss = {current_loss:.6f}, wait = {wait_count}/{patience}")
+                if epoch_count > last_epoch_count:
+                    if epoch_count >= 5:
+                        if current_loss < best_loss - min_delta:
+                            best_loss = current_loss
+                            wait_count = 0
+                            print(f"[EarlyStopping] Epoch {epoch_count}: New best loss = {best_loss:.6f}, wait reset")
+                        else:
+                            wait_count += (epoch_count - last_epoch_count)
+                            print(f"[EarlyStopping] Epoch {epoch_count}: Loss = {current_loss:.6f}, wait = {wait_count}/{patience}")
 
-                last_loss = current_loss
-                last_epoch += epoch_diff
+                            if wait_count >= patience:
+                                print(f"\n[EarlyStopping] Early stopping triggered!")
+                                print(f"[EarlyStopping] No improvement for {patience} epochs. Best loss: {best_loss:.6f}")
+                                process.send_signal(signal.SIGTERM)
+                                time.sleep(5)
+                                if process.poll() is None:
+                                    process.send_signal(signal.SIGKILL)
+                                break
 
-                if wait_count >= patience:
-                    print(f"\n[EarlyStopping] Early stopping triggered! No improvement for {patience} epochs.")
-                    print(f"[EarlyStopping] Best loss: {best_loss:.6f}")
-                    process.send_signal(signal.SIGTERM)
-                    time.sleep(5)
-                    if process.poll() is None:
-                        process.send_signal(signal.SIGKILL)
-                    break
+                    last_epoch_count = epoch_count
 
         try:
             while True:

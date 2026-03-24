@@ -164,10 +164,16 @@ def extract_train_src_target_refs(
         }
 
     sorted_codepoints = sorted(filtered_codepoints)
-    
+
+    max_chars_limit = sample_count if sample_count else 800
+
     if auto_split:
         import random
         random.seed(seed)
+
+        if len(sorted_codepoints) > max_chars_limit:
+            sorted_codepoints = _sample_codepoints(sorted_codepoints, max_chars_limit, seed)
+
         shuffled = sorted_codepoints.copy()
         random.shuffle(shuffled)
         split_idx = max(1, int(len(shuffled) * train_ratio))

@@ -11,9 +11,9 @@ echo "=========================================="
 # All target fonts
 FONTS=(
     "young"
-    "1260-Regular"
-    "字魂细体"
-    "颜体刻本"
+    # "1260-Regular"
+    # "字魂细体"
+    # "颜体刻本"
 )
 
 # Force regeneration even if font exists
@@ -56,7 +56,7 @@ for i in "${!FONTS[@]}"; do
     echo ""
 
     # Clean up previous runs
-    DATASET_DIR="data/${FONT}_dataset"
+    DATASET_DIR="data/dataset/${FONT}"
     OUTPUT_DIR="run/lora_ft_${FONT}_L"
     rm -rf "$DATASET_DIR" "$OUTPUT_DIR" 2>/dev/null || true
     
