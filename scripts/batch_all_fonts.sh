@@ -8,14 +8,16 @@ echo "=========================================="
 echo "  zi2zi-JiT Batch Font Generation"
 echo "=========================================="
 
-# All target fonts (excluding young which is already done)
+# All target fonts
 FONTS=(
+    "young"
     "1260-Regular"
     "字魂细体"
-    "手写体1"
-    "手写体2"
     "颜体刻本"
 )
+
+# Force regeneration even if font exists
+FORCE_REGEN="${FORCE_REGEN:-false}"
 
 TOTAL=${#FONTS[@]}
 SUCCESS=0
@@ -35,20 +37,28 @@ for i in "${!FONTS[@]}"; do
     FONT="${FONTS[$i]}"
     NUM=$((i + 1))
     
+    # Check if font already generated successfully
+    FONT_PATH="run/lora_ft_${FONT}_L/font_output/${FONT}_generated.ttf"
+    if [ -f "$FONT_PATH" ] && [ "$FORCE_REGEN" != "true" ]; then
+        echo ""
+        echo "=========================================="
+        echo "[$NUM/$TOTAL] $FONT - already exists, skipping"
+        echo "=========================================="
+        echo ""
+        ((SUCCESS++)) || true
+        continue
+    fi
+    
     echo ""
     echo "=========================================="
     echo "[$NUM/$TOTAL] Processing: $FONT"
     echo "=========================================="
     echo ""
-    
-    FONT_PATH="run/lora_ft_${FONT}_L/font_output/${FONT}_generated.ttf"
-    if [ -f "$FONT_PATH" ]; then
-        SIZE=$(du -h "$FONT_PATH" | cut -f1)
-        echo "Font already exists: $FONT_PATH ($SIZE)"
-        echo "[$NUM/$TOTAL] $FONT SKIPPED (already generated)"
-        SUCCESS=$((SUCCESS + 1))
-        continue
-    fi
+
+    # Clean up previous runs
+    DATASET_DIR="data/${FONT}_dataset"
+    OUTPUT_DIR="run/lora_ft_${FONT}_L"
+    rm -rf "$DATASET_DIR" "$OUTPUT_DIR" 2>/dev/null || true
     
     FONT_START=$(date +%s)
     
@@ -61,14 +71,14 @@ for i in "${!FONTS[@]}"; do
         FONT_DURATION=$((FONT_END - FONT_START))
         echo ""
         echo "[$NUM/$TOTAL] $FONT completed in ${FONT_DURATION}s"
-        ((SUCCESS++))
+        ((SUCCESS++)) || true
     else
         FONT_END=$(date +%s)
         FONT_DURATION=$((FONT_END - FONT_START))
         echo ""
         echo "[$NUM/$TOTAL] $FONT FAILED after ${FONT_DURATION}s"
         FAILED_FONTS+=("$FONT")
-        ((FAILED++))
+        ((FAILED++)) || true
     fi
 done
 

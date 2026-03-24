@@ -29,11 +29,15 @@ BASE_CHECKPOINT="${BASE_CHECKPOINT:-models/zi2zi-JiT-models/zi2zi-JiT-L-16.pth}"
 OUTPUT_DIR="${OUTPUT_DIR:-run/lora_ft_${TARGET_FONT}_L}"
 
 # Training Parameters
-EPOCHS="${EPOCHS:-500}"
+EPOCHS="${EPOCHS:-2000}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 BLR="${BLR:-8e-4}"
 WARMUP_EPOCHS="${WARMUP_EPOCHS:-5}"
 SEED="${SEED:-42}"
+
+# Early Stopping Parameters
+EARLY_STOP_PATIENCE="${EARLY_STOP_PATIENCE:-100}"
+EARLY_STOP_MIN_DELTA="${EARLY_STOP_MIN_DELTA:-0.0001}"
 
 # LoRA Parameters
 LORA_R="${LORA_R:-32}"
@@ -76,6 +80,7 @@ echo "  Model:          $MODEL"
 echo "  Output Dir:     $OUTPUT_DIR"
 echo ""
 echo "  Epochs:         $EPOCHS"
+echo "  Early Stop:     patience=$EARLY_STOP_PATIENCE, min_delta=$EARLY_STOP_MIN_DELTA"
 echo "  Batch Size:     $BATCH_SIZE"
 echo "  CFG Scale:      $CFG"
 echo "  Device:         $DEVICE"
@@ -219,10 +224,15 @@ EOF
 
 echo "Configuration saved to: $OUTPUT_DIR/config.sh"
 echo ""
-echo "Starting training..."
+echo "Starting training with early stopping..."
 echo "=========================================="
 
-python lora_single_gpu_finetune_jit.py \
+python scripts/train_with_early_stopping.py \
+    "$OUTPUT_DIR" \
+    "$EARLY_STOP_PATIENCE" \
+    "$EARLY_STOP_MIN_DELTA" \
+    -- \
+    python lora_single_gpu_finetune_jit.py \
     --data_path "$DATA_PATH" \
     --test_npz_path "$TEST_NPZ" \
     --output_dir "$OUTPUT_DIR" \
