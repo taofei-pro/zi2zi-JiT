@@ -37,6 +37,7 @@ NUM_STEPS="${NUM_STEPS:-20}"
 # Resolution
 RESOLUTION="${RESOLUTION:-256}"
 REF_SIZE="${REF_SIZE:-128}"
+UP_SCALE="${UP_SCALE:-2}"  # 超分辨率放大倍数 (1=不放大, 2=256->512)
 
 # Device
 DEVICE="${DEVICE:-cuda}"
@@ -199,6 +200,54 @@ python generate_chars.py \
     --sampling_method "$SAMPLING_METHOD" \
     --num_sampling_steps "$NUM_STEPS" \
     --cfg "$CFG"
+
+# ============================================
+# Step 3: Upscale images (Super Resolution)
+# ============================================
+
+GEN_DIR=$(find "$OUTPUT_DIR" -type d -name "generated" 2>/dev/null | head -1)
+
+if [ "$UP_SCALE" -gt 1 ] && [ -n "$GEN_DIR" ]; then
+    echo ""
+    echo "=========================================="
+    echo "Step 3: Upscaling images (${UP_SCALE}x)"
+    echo "=========================================="
+    
+    UPSCALED_DIR="${GEN_DIR}_upscaled"
+    mkdir -p "$UPSCALED_DIR"
+    
+    python - << PYTHON_SCRIPT
+from pathlib import Path
+from PIL import Image
+import numpy as np
+from tqdm import tqdm
+
+gen_dir = Path("$GEN_DIR")
+upscaled_dir = Path("$UPSCALED_DIR")
+up_scale = int("$UP_SCALE")
+
+# 使用高质量Lanczos插值放大
+img_paths = sorted(gen_dir.glob("*.png"))
+print(f"Upscaling {len(img_paths)} images by {up_scale}x...")
+
+for img_path in tqdm(img_paths, desc="Upscaling"):
+    try:
+        img = Image.open(img_path).convert('RGB')
+        new_size = (img.width * up_scale, img.height * up_scale)
+        # 使用LANCZOS (Lanczos插值) 进行高质量放大
+        img_up = img.resize(new_size, Image.LANCZOS)
+        img_up.save(upscaled_dir / img_path.name, quality=95)
+    except Exception as e:
+        print(f"  Failed to upscale {img_path.name}: {e}")
+
+print(f"Upscaled images saved to: {upscaled_dir}")
+PYTHON_SCRIPT
+    
+    # 修改 IMAGES_DIR 指向放大后的图片
+    IMAGES_DIR="$UPSCALED_DIR"
+else
+    IMAGES_DIR="$GEN_DIR"
+fi
 
 # ============================================
 # Summary

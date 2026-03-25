@@ -70,6 +70,7 @@ fi
 # Export for sub-scripts
 export TARGET_FONT
 export TARGET_FONT_FILE="$FONT_FILE"
+export UP_SCALE
 
 # ============================================
 # Step 1: Train LoRA

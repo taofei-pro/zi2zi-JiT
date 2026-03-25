@@ -17,8 +17,14 @@ echo "=========================================="
 # ============================================
 
 TARGET_FONT="${TARGET_FONT:-young}"           # 目标字体名
-EPOCHS=2000                                    # 训练轮数
-LORA_R=64                                      # LoRA rank (16-128)
+LORA_R=128                                      # LoRA rank (16-128)
+LORA_ALPHA=64
+BATCH_SIZE=16
+CFG=2.6
+BLR=5e-5
+EPOCHS=2000                                     # 训练轮数
+NUM_SAMPLING_STEPS=100
+UP_SCALE=2
 MAX_CHARS_PER_FONT=800                         # 每款字体训练字符数 (最多)
 SEED=42                                        # 随机种子
 
@@ -34,19 +40,14 @@ MODEL="JiT-L/16"
 BASE_CHECKPOINT="models/zi2zi-JiT-models/zi2zi-JiT-L-16.pth"
 OUTPUT_DIR="run/lora_ft_${TARGET_FONT}_L"
 
-BATCH_SIZE=16
-BLR=8e-4
 WARMUP_EPOCHS=5
 EARLY_STOP_PATIENCE=100
 EARLY_STOP_MIN_DELTA=0.0001
-LORA_ALPHA=32
 LORA_TARGETS=qkv,proj,w12,w3
 NUM_FONTS=1000
 NUM_CHARS=20000
 
-CFG=2.4
 SAMPLING_METHOD=heun
-NUM_SAMPLING_STEPS=50
 EVAL_FREQ=50
 SAVE_FREQ=50
 GEN_BSZ=16
@@ -240,7 +241,7 @@ python scripts/train_with_early_stopping.py \
     --proj_dropout 0.1 \
     --P_mean -0.8 \
     --P_std 0.8 \
-    --noise_scale 1.0 \
+    --noise_scale 0.9 \
     --cfg "$CFG" \
     --sampling_method "$SAMPLING_METHOD" \
     --num_sampling_steps "$NUM_SAMPLING_STEPS" \

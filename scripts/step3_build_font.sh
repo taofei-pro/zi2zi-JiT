@@ -15,8 +15,12 @@ echo "=========================================="
 # Target font name (without extension)
 TARGET_FONT="${TARGET_FONT:-young}"
 
-# Input: generated images directory (supports wildcard)
-IMAGES_DIR_PATTERN="${IMAGES_DIR_PATTERN:-run/lora_ft_${TARGET_FONT}_L/full_output/ab2-steps20-cfg2.4-interval0.0-1.0-image*-res256/generated}"
+# Input: generated images directory
+# 自动检测是否有 upscaled 目录
+IMAGES_DIR_PATTERN="run/lora_ft_${TARGET_FONT}_L/full_output/*/generated_upscaled"
+if ! ls -d $IMAGES_DIR_PATTERN 2>/dev/null | head -1 | grep -q .; then
+    IMAGES_DIR_PATTERN="run/lora_ft_${TARGET_FONT}_L/full_output/*/generated"
+fi
 
 # Resolve wildcard pattern
 IMAGES_DIR=$(ls -d $IMAGES_DIR_PATTERN 2>/dev/null | head -1)
