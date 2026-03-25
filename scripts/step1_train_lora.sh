@@ -28,7 +28,7 @@ SEED=42                                        # 随机种子
 
 SOURCE_FONT="data/base/思源宋体SC-Light.otf"
 TARGET_FONT_DIR="data/target_font"
-CHARSET="gb2312"
+CHARSET="target"
 DATASET_DIR="data/dataset/${TARGET_FONT}"
 MODEL="JiT-L/16"
 BASE_CHECKPOINT="models/zi2zi-JiT-models/zi2zi-JiT-L-16.pth"

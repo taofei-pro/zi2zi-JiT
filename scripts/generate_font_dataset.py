@@ -68,8 +68,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--test-seed", type=int, default=99999, help="Random seed for testing (default: 99999).")
 
     parser.add_argument("--charset", type=str, default="gb2312",
-                        choices=["gb2312", "gbk", "big5", "jisx0208", "ksx1001"],
-                        help="Charset filter (default: gb2312).")
+                        choices=["gb2312", "gbk", "big5", "jisx0208", "ksx1001", "target"],
+                        help="Charset filter (default: gb2312). 'target' reads from data/base/target_charset.txt")
     parser.add_argument("--resolution", type=int, default=256, help="Glyph resolution (default: 256).")
     parser.add_argument("--num-workers", type=int, default=4, help="Parallel workers for font processing (default: 4).")
     

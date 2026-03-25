@@ -298,8 +298,9 @@ def extract_test_src_target_refs(
     common_codepoints = source_codepoints & target_codepoints
 
     if charset:
-        if charset.lower() not in SUPPORTED_CHARSETS:
-            raise ValueError(f"Unsupported charset '{charset}'. Supported: {', '.join(sorted(SUPPORTED_CHARSETS))}")
+        charset_lower = charset.lower()
+        if charset_lower != "target" and charset_lower not in SUPPORTED_CHARSETS:
+            raise ValueError(f"Unsupported charset '{charset}'. Supported: {', '.join(sorted(SUPPORTED_CHARSETS))}, or 'target'")
         charset_codepoints = get_charset_codepoints(charset)
         filtered_codepoints = common_codepoints & charset_codepoints
         index_map = _build_index_map(charset)
